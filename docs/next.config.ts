@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   redirects() {
     return [{ source: "/", destination: "/docs", permanent: false }];
   },
+  outputFileTracingIncludes: {
+    "/*": ["./content/**/*", "./codealtas.config.ts"],
+  },
   serverExternalPackages: ["c12", "jiti"],
   turbopack: {
     rules: {
