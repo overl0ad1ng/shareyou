@@ -1,6 +1,6 @@
-import { defineConfig } from "@code-altas/ui/config"
+import type { Config } from "@code-altas/ui/config"
 
-export default defineConfig({
+export default {
   title: "Shareyou",
   description: "面向 JavaScript 与 TypeScript 的实用工具库",
   // Match the actual file name in `docs/public` (case-sensitive on Linux).
@@ -77,4 +77,4 @@ export default defineConfig({
     author: { name: "IzayoiKyomu" },
     license: "MIT",
   },
-})
+} satisfies Config
