@@ -1,0 +1,131 @@
+---
+title: 日期与时间格式化
+description: 用 Intl.DateTimeFormat 输出日期和时间，并正确处理时区与内置样式。
+---
+
+日期和时间使用 `Intl.DateTimeFormat`，写法是在占位符后加 `| date` 或 `| time`：
+
+```text
+{{at | date}}
+{{at | date:short}}
+{{at | time:short}}
+```
+
+## 基本用法
+
+```ts
+import { templater } from '@shareyou/templater';
+
+const at = new Date('2026-01-02T03:04:05Z');
+const options = { locale: 'en-US', timeZone: 'UTC' };
+
+templater('{{at | date}}', { at }, options);        // 1/2/2026
+templater('{{at | date:short}}', { at }, options);  // 1/2/26
+templater('{{at | date:medium}}', { at }, options); // Jan 2, 2026
+templater('{{at | date:long}}', { at }, options);   // January 2, 2026
+templater('{{at | date:full}}', { at }, options);   // Friday, January 2, 2026
+
+templater('{{at | time}}', { at }, options);        // 3:04:05 AM
+templater('{{at | time:short}}', { at }, options);  // 3:04 AM
+templater('{{at | time:medium}}', { at }, options); // 3:04:05 AM
+```
+
+- 输入必须是有效的 `Date`，或者是有限数字时间戳（毫秒）。
+- `Invalid Date`、字符串和 `NaN` 都会抛出 `TemplateArgumentError`。
+- 必须提供 `locale`。
+
+## 内置样式
+
+`short`、`medium`、`long`、`full` 是内置名称：
+
+| 操作 | 名称 | 对应的 Intl 选项 |
+| --- | --- | --- |
+| `date` | `short` | `{ dateStyle: 'short' }` |
+| `date` | `medium` | `{ dateStyle: 'medium' }` |
+| `date` | `long` | `{ dateStyle: 'long' }` |
+| `date` | `full` | `{ dateStyle: 'full' }` |
+| `time` | `short` | `{ timeStyle: 'short' }` |
+| `time` | `medium` | `{ timeStyle: 'medium' }` |
+| `time` | `long` | `{ timeStyle: 'long' }` |
+| `time` | `full` | `{ timeStyle: 'full' }` |
+
+省略名称时的默认值不同：
+
+| 操作 | 默认选项 |
+| --- | --- |
+| `date` | `{}`，由 `Intl` 输出年、月、日 |
+| `time` | `{ hour: 'numeric', minute: 'numeric', second: 'numeric' }` |
+
+## 自定义预设
+
+自定义日期和时间预设分别写在 `formats.date` 和 `formats.time` 中：
+
+```ts
+const options = {
+  locale: 'en-US',
+  timeZone: 'UTC',
+  formats: {
+    date: {
+      receipt: { year: 'numeric', month: '2-digit', day: '2-digit' },
+    },
+    time: {
+      clock: { hour: '2-digit', minute: '2-digit', hour12: false },
+    },
+  },
+};
+
+templater('{{at | date:receipt}}', { at }, options); // 01/02/2026
+templater('{{at | time:clock}}', { at }, options);   // 03:04
+```
+
+- 预设值是完整的 `Intl.DateTimeFormatOptions`。
+- 同名用户预设会覆盖内置样式，例如定义 `date.short` 后，`date:short` 不再使用 `dateStyle: 'short'`。
+- 操作名决定查找哪个字典，以及省略名称时的默认值；自定义预设本身可以同时包含日期和时间字段。
+- 不要把 `dateStyle` 或 `timeStyle` 与单独的 `year`、`month`、`day`、`hour` 等字段混用，`Intl` 会抛出 `TypeError`。
+
+## 时区
+
+时区按以下优先级取值：
+
+1. 命名格式中显式写的 `timeZone`；
+2. 选项中的 `timeZone`；
+3. 运行环境的默认时区。
+
+```ts
+const formats = {
+  date: { utc: { dateStyle: 'medium', timeZone: 'UTC' } },
+  time: { local: { timeStyle: 'short' } },
+};
+
+const at = new Date('2026-01-01T20:00:00Z');
+
+templater('{{at | date:utc}}', { at }, {
+  locale: 'en-US',
+  timeZone: 'Asia/Shanghai',
+  formats,
+});
+// Jan 1, 2026（预设中的 UTC 优先；若使用 Asia/Shanghai 则是 Jan 2）
+```
+
+`options.timeZone` 会在渲染前被校验，即使本次没有任何日期占位符使用它。非法时区会抛出 `RangeError`。
+
+## 类型契约
+
+`date` 和 `time` 格式化的参数推导为 `number | Date`。可以叠加 `:type` 约束进一步缩小范围：
+
+```ts
+// at 只接受 Date，因为 :object 与日期格式化的允许类型取交集。
+templater('{{at:object | date:short}}', { at }, options);
+```
+
+如果一个参数同时出现在多个位置，约束会取交集；无法同时满足时得到 `never`。详见[编译复用与参数契约](/docs/templater/advanced/compile)。
+
+## 错误与时机
+
+| 情况 | 时机 | 错误 |
+| --- | --- | --- |
+| 输入不是有效 `Date` 或时间戳 | 渲染前 | `TemplateArgumentError` |
+| 没有提供 `locale` | 渲染前 | `TypeError` |
+| `options.timeZone` 非法 | 渲染前 | `RangeError` |
+| 引用了未定义的时间预设 | 渲染时（仅当该分支被执行） | `RangeError` |
+| `dateStyle` 与单独字段混用 | 渲染时 | 原生 `Intl` 的 `TypeError` |

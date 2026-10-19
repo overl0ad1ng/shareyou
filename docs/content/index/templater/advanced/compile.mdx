@@ -1,0 +1,156 @@
+---
+title: 编译复用与参数契约
+description: 复用编译结果，读取 parameters 与 requiresLocale，并理解参数契约的推导规则。
+---
+
+`templater(template, parameters, options?)` 等价于“编译一次 + 渲染一次”。同一模板需要重复渲染时，使用 `compileTemplate` 只编译一次：
+
+```ts
+import { templater, compileTemplate } from '@shareyou/templater';
+
+const message =
+  '{{#plural count}}{{:one}}{{#}} item{{:other}}{{#}} items{{/plural}}';
+
+const compiled = compileTemplate(message);
+
+compiled.render({ count: 1 }, { locale: 'en' }); // 1 item
+compiled.render({ count: 3 }, { locale: 'en' }); // 3 items
+```
+
+编译本身不需要 `locale`。语言规则只在渲染时使用。
+
+## 返回结构
+
+`compileTemplate` 返回一个冻结对象：
+
+| 属性 | 类型 | 说明 |
+| --- | --- | --- |
+| `parameters` | 只读数组 | 按首次出现顺序排列的参数契约 |
+| `requiresLocale` | `boolean` | 渲染时是否必须提供 `locale` |
+| `render` | 函数 | 使用与 `templater` 相同的校验和渲染逻辑 |
+
+每个参数项也是冻结对象：
+
+```ts
+const compiled = compileTemplate('{{name:string}} {{count | number}}');
+
+console.log(compiled.parameters);
+// [
+//   { name: 'name',  types: ['string'], type: 'string' },
+//   { name: 'count', types: ['number'], type: 'number' },
+// ]
+```
+
+- `types` 是运行时接受的内部值种类列表，例如 `string`、`number`、`Date`、`null`、`function`。
+- `type` 是与之等价的 TypeScript 类型表达式字符串，便于生成声明或文档。
+
+## 参数契约
+
+同一个参数可能出现在多个位置，所有约束取交集：
+
+| 模板中的出现方式 | 接受的值 | `type` |
+| --- | --- | --- |
+| `{{name}}` | 所有种类 | `unknown` |
+| `{{name:string}}` | 字符串 | `string` |
+| `{{name:number}}` | 数字 | `number` |
+| `{{name:object}}` | 对象、`null`、`Date` | `object \| null` |
+| `{{name:function}}` | 函数 | `Function` |
+| `{{#plural n}}`、`{{#ordinal n}}` | 数字 | `number` |
+| `{{#select s}}` | 字符串 | `string` |
+| `{{n \| number}}` | 数字 | `number` |
+| `{{d \| date}}`、`{{d \| time}}` | 数字或 `Date` | `number \| Date` |
+| 交集为空 | 不可满足 | `never` |
+
+例如 `{{value:number}}` 与 `{{value:string}}` 同时出现时，参数契约会得到 `never`：
+
+```ts
+const compiled = compileTemplate('{{value:number}} {{value:string}}');
+
+compiled.parameters[0]?.type; // 'never'
+```
+
+字面量模板还会在 TypeScript 层面对参数对象报错。
+
+## `requiresLocale`
+
+`requiresLocale` 为 `true` 的条件：
+
+- 模板中存在 `plural` 或 `ordinal`；
+- 模板中存在 `number`、`date` 或 `time` 格式化；
+- `select` 的任一分支内出现以上内容。
+
+只有普通插值、类型约束，或者“分支内没有任何语言相关操作”的 `select` 时，它才是 `false`。
+
+```ts
+compileTemplate('{{name}}').requiresLocale; // false
+compileTemplate('{{#select role}}{{:admin}}A{{:other}}B{{/select}}').requiresLocale; // false
+compileTemplate('{{amount | number}}').requiresLocale; // true
+compileTemplate('{{#ordinal rank}}{{:other}}#{{#}}{{/ordinal}}').requiresLocale; // true
+```
+
+## 参数读取时机
+
+- **不含块**的模板：按占位符出现顺序读取、校验和转换参数。
+- **含块**的模板：渲染前先读取所有分支中的参数，即使该分支不会执行。
+
+第二条意味着未进入分支的 getter 也会执行，并且所有分支参数都属于必填契约：
+
+```ts
+const parameters = {
+  get count() {
+    console.log('read count');
+    return 1;
+  },
+  get name() {
+    console.log('read name');
+    return 'Ada';
+  },
+};
+
+templater(
+  '{{#plural count}}{{:one}}{{name:string}}{{:other}}{{name:string}}{{/plural}}',
+  parameters,
+  { locale: 'en' },
+);
+// count 读取一次；name 在两个分支中各出现一次，因此读取两次。
+```
+
+## 动态模板
+
+当模板来源是运行时字符串时，`compileTemplate` 无法推导参数名，参数类型退化为只读字典：
+
+```ts
+const template: string = '{{count | number}}';
+const compiled = compileTemplate(template);
+
+compiled.render({ count: 3 }, { locale: 'en' }); // 3
+compiled.render({ count: '3' }, { locale: 'en' }); // TemplateArgumentError
+```
+
+运行时校验仍然完整生效。
+
+## 类型不匹配策略
+
+| 设置 | 普通约束不匹配 | `!` 约束不匹配 | 块控制类型错误 |
+| --- | --- | --- | --- |
+| 默认 | `console.warn` 后继续 | 抛出 `TemplateArgumentError` | 抛出 |
+| `typeMismatch: 'throw'` | 抛出 `TemplateArgumentError` | 抛出 | 抛出 |
+
+`typeMismatch` 只影响普通 `:type` 约束，不改变格式化输入的检查。
+
+## 与 i18n 的关系
+
+i18n 为每条消息调用一次 `compileTemplate`，并固定以下配置：
+
+- 使用命中文案所属词典的语言；
+- `typeMismatch: 'throw'`；
+- 实例的 `timeZone`；
+- 通过 `snapshotTemplateFormats` 保存的命名格式。
+
+回退到另一种语言时，会使用该语言自己的复数和格式化规则。i18n 不实现第二套模板引擎。
+
+## 使用建议
+
+- 反复渲染同一模板时缓存 `compileTemplate` 的结果。
+- 需要把参数契约暴露给其他工具时，读取 `parameters` 和 `requiresLocale`。
+- 需要长期持有格式配置时，先用 `snapshotTemplateFormats` 生成快照。

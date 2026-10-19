@@ -1,0 +1,10 @@
+{
+  "settings": {
+    "switchAccount": "Switch to {{targetAccount:string}}?"
+  },
+  "cart": {
+    "items": "{{#plural count}}{{:=0}}Your cart is empty{{:one}}{{#}} item{{:other}}{{#}} items{{/plural}}"
+  },
+  "welcome": "Welcome to Shareyou",
+  "updated": "Updated {{at | date:short}} at {{at | time:short}}"
+}

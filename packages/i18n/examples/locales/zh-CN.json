@@ -1,0 +1,9 @@
+{
+  "settings": {
+    "switchAccount": "是否切换到 {{targetAccount:string}}？"
+  },
+  "cart": {
+    "items": "{{#plural count}}{{:=0}}购物车为空{{:other}}{{#}} 件商品{{/plural}}"
+  },
+  "updated": "更新于 {{at | date:short}} {{at | time:short}}"
+}

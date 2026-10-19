@@ -1,0 +1,127 @@
+---
+title: i18n
+description: 使用 Templater 模板、语言回退和类型生成，为 JavaScript 与 TypeScript 项目提供翻译能力。
+---
+
+i18n 提供同步翻译实例。应用传入语言资源，实例负责文案查找和语言回退，模板解析与渲染复用 Shareyou Templater。
+每次创建的实例具有独立状态，可以在服务端按请求创建。
+
+## 安装
+
+<PackageInstall package="@shareyou/i18n" />
+
+需要 Node.js 22 或更高版本、ES 模块，以及支持所需 `Intl` API 的运行环境。
+浏览器需要提供 `Intl.Locale`、`Intl.NumberFormat`、`Intl.DateTimeFormat` 和 `Intl.PluralRules`；本包不附带 polyfill。
+TypeScript 类型需要 TypeScript 5.4 或更高版本。
+
+也可以从统一入口 `@shareyou/core` 导入 `createI18n`，或者调用 `shareyou.i18n(options)`。
+`shareyou.i18n` 与 `createI18n` 引用同一个工厂函数。
+
+## 第一个翻译实例
+
+```ts
+import { createI18n } from '@shareyou/i18n';
+
+const i18n = createI18n({
+  locale: 'zh-CN',
+  fallbackLocale: 'en',
+  messages: {
+    en: {
+      settings: { switchAccount: 'Switch to {{targetAccount:string}}?' },
+      cart: '{{#plural count}}{{:one}}{{#}} item{{:other}}{{#}} items{{/plural}}',
+      welcome: 'Welcome',
+    },
+    'zh-CN': {
+      settings: { switchAccount: '是否切换到 {{targetAccount:string}}？' },
+      cart: '{{#plural count}}{{:other}}{{#}} 件商品{{/plural}}',
+    },
+  },
+});
+
+i18n.t('settings.switchAccount', { targetAccount: 'hi@overl0ad1ng.com' });
+// 是否切换到 hi@overl0ad1ng.com？
+i18n.t('cart', { count: 3 }); // 3 件商品
+i18n.t('welcome'); // Welcome
+
+i18n.setLocale('en');
+i18n.t('cart', { count: 1 }); // 1 item
+```
+
+`t()` 始终同步返回 `string`。无参数文案可以省略第二个参数。
+未生成类型时，资源结构可用于推导键名，参数使用通用字典并在运行时检查；完整参数提示见 [类型生成与检查](/docs/i18n/types)。
+
+资源支持嵌套对象，路径使用 `.` 连接。叶子必须是字符串，不能使用数组、空键名或包含 `.` 的键名。
+实例创建时会复制资源并通过 Templater 编译消息；之后修改原对象不影响实例，也不会自动加载其他语言。命名格式也会保存为独立快照。
+服务端应在每个请求中创建独立实例，避免跨请求共享状态。
+
+`locale` 是只读属性，切换语言使用 `setLocale()`。标签会先规范化；规范化失败时保持原语言并抛出 `INVALID_CONFIG`：
+
+```ts
+i18n.locale; // 'zh-CN'
+i18n.setLocale('en');
+i18n.locale; // 'en'
+
+try {
+  i18n.setLocale('not a locale');
+} catch (error) {
+  // error.code === 'INVALID_CONFIG'
+  // i18n.locale 仍为 'en'
+}
+```
+
+## 语言回退
+
+查找顺序是当前语言及其父语言，然后是 `fallbackLocale` 及其父语言，重复语言只查找一次。
+例如当前语言为 `fr-CA`、回退语言为 `en-GB` 时，顺序为 `fr-CA → fr → en-GB → en`。
+带扩展的语言标签会先尝试完整标签，再整体移除扩展并查找父语言。
+
+语言标签会规范化，`zh-cn` 与 `zh-CN` 指向同一语言；规范化后重名的资源会报错。
+回退语言必须注册字典，可以是空字典。当前请求语言可以尚未注册，查找仍会继续回退。
+找到文案后，使用该字典所属语言的复数和消息格式规则。空字符串是有效翻译。
+
+## 错误处理
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: { en: {} },
+  onError(error) {
+    console.error(error.code, error.key, error.locale, error.attemptedLocales);
+  },
+});
+```
+
+所有候选语言都缺少文案时，默认通知 `onError` 并返回键名；`strict: true` 则在通知后抛出错误。
+参数缺失、类型错误和格式化失败总会抛出，不会用其他语言的文案掩盖错误。
+默认没有日志输出，`onError` 自己抛出的异常会继续传播。
+
+`I18nError` 包含 `code`、`key`、`locale`、`attemptedLocales` 和 `cause`。无关的上下文字段可以为 `undefined`。
+
+| code | 含义 |
+| --- | --- |
+| `INVALID_CONFIG` | 配置、语言标签、时区或回退语言无效 |
+| `INVALID_RESOURCE` | 资源结构不符合要求 |
+| `INVALID_MESSAGE` | 模板语法无效或参数类型冲突 |
+| `MISSING_MESSAGE` | 所有候选语言都缺少文案 |
+| `INVALID_ARGUMENT` | 参数缺失或类型不匹配 |
+| `FORMAT_ERROR` | 模板渲染或格式配置失败 |
+
+配置、资源和消息错误在创建阶段直接抛出。`onError` 用于实例创建后的翻译错误。
+只接受参数对象自身的属性；数字必须有限，日期必须有效。
+
+## 实例接口
+
+`createI18n()` 返回同步实例，包含以下成员：
+
+| 成员 | 说明 |
+| --- | --- |
+| `locale` | 当前规范化后的语言标签，只读 |
+| `setLocale(tag)` | 同步切换语言，失败时保持原值 |
+| `t(key, values?)` | 查找并渲染消息，返回 `string` |
+| `formatNumber(value, options?)` | 使用当前语言调用 `Intl.NumberFormat` |
+| `formatDate(value, options?)` | 使用当前语言和实例默认时区调用 `Intl.DateTimeFormat` |
+
+## 继续阅读
+
+- [模板消息与格式化](/docs/i18n/messages)：插值、复数、条件选择、日期与数字。
+- [类型生成与检查](/docs/i18n/types)：从 JSON 生成参数契约并接入 CI。

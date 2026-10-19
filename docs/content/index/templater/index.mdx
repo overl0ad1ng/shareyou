@@ -1,0 +1,118 @@
+---
+title: Templater
+description: 支持 TypeScript 类型推导和运行时参数检查的字符串插值工具。
+---
+
+Templater 是 Shareyou 提供的字符串插值工具。传入模板和参数对象，即可得到替换后的字符串。字面量模板支持 TypeScript 参数推导，运行时还会检查参数是否存在、类型是否符合约束。
+
+## 安装
+
+<PackageInstall package="@shareyou/templater" />
+
+需要其他 Shareyou 工具时，也可以使用统一入口 `@shareyou/core`。安装状态和环境要求见 [快速开始](/docs/quickstart)。
+
+## 基本用法
+
+```ts
+import { templater } from "@shareyou/templater";
+
+const text = templater("你好，{{name}}。", { name: "Shareyou" });
+// 你好，Shareyou。
+```
+
+使用统一入口时，函数和类型也可以直接导入：
+
+```ts
+import shareyou, { templater } from "@shareyou/core";
+
+shareyou.templater("{{count:number!}} 条消息", { count: 3 });
+templater("你好，{{name}}。", { name: "Shareyou" });
+```
+
+`templater(template, parameters, options?)` 同步返回原始 `string`。普通插值可以省略选项；复数、序数以及 `number`/`date`/`time` 格式化需要显式 `locale`。即使模板没有占位符，也需要传入参数对象：
+
+```ts
+templater("一段固定文本", {}); // 一段固定文本
+```
+
+### 特点
+
+Shareyou Templater 诞生的目的并不是取代传统的 JavaScript 模板字符串。Shareyou Templater 最有价值的用途，是将模板与具体代码分开维护。
+这在一些配置文件里非常有用，不用额外考虑模板如何定义，工具函数如何书写，如何替换等等。
+
+JavaScript 模板字符串：
+
+```ts
+const name: string = "Shareyou";
+
+const text = `你好 ${name}`
+```
+
+Shareyou Templater：
+
+```ts
+import shareyou from "@shareyou/core";
+
+const templates: Record<string, string> = {
+  "hello-text": "你好 {{name:string}}"
+};
+
+const text = shareyou.templater(templates["hello-text"], { name: "Shareyou" });
+```
+
+这些模板也可以来自应用维护的配置文件，例如 `templates.json`：
+
+```json
+{
+  "settings": {
+    "account": "账户",
+    "switchAccount": "是否切换到 {{targetAccount:string}}？"
+  }
+}
+```
+
+在代码中导入并使用：
+
+```ts
+import shareyou from "@shareyou/core";
+import templates from "./templates.json" with { type: "json" };
+
+const text = shareyou.templater(templates.settings.switchAccount, {
+  targetAccount: "hi@overl0ad1ng.com",
+});
+```
+
+需要多语言、复数和语言回退时，使用 [i18n](/docs/i18n/) 创建翻译实例并调用 `i18n.t()`。
+i18n 直接复用 Templater 的解析器、参数契约和渲染器，使用相同的 `{{name:type}}` 语法。
+
+```ts
+import shareyou from "@shareyou/core";
+
+const i18n = shareyou.i18n({
+  locale: 'zh-CN',
+  messages: {
+    'zh-CN': {
+      settings: { switchAccount: '是否切换到 {{targetAccount:string}}？' },
+    },
+  },
+});
+
+const text = i18n.t('settings.switchAccount', {
+  targetAccount: 'hi@overl0ad1ng.com',
+});
+```
+
+## 继续阅读
+
+- [模板语法](/docs/templater/syntax)：占位符、类型约束和文本替换规则。
+- [分支与格式化](/docs/templater/advanced)：块与格式化表达式概览、速查表和共同规则。
+  - [复数（plural）](/docs/templater/advanced/plural)：语言类别、精确选择器和 `{{#}}`。
+  - [序数（ordinal）](/docs/templater/advanced/ordinal)：`1st`、`2nd`、`3rd` 等序数规则。
+  - [条件选择（select）](/docs/templater/advanced/select)：按字符串值切换分支。
+  - [偏移量与数量文本](/docs/templater/advanced/offset)：`offset` 与 `{{#}}` 的语义。
+  - [数字格式化](/docs/templater/advanced/number)：货币、百分比和紧凑记数。
+  - [日期与时间格式化](/docs/templater/advanced/date-time)：日期、时间和时区。
+  - [命名格式与 Intl 选项](/docs/templater/advanced/presets)：预设查找与配置快照。
+  - [编译复用与参数契约](/docs/templater/advanced/compile)：`compileTemplate` 与元数据。
+- [类型推导](/docs/templater/typescript)：字面量模板、动态模板和导出的辅助类型。
+- [错误处理](/docs/templater/errors)：运行时检查、警告与异常处理。

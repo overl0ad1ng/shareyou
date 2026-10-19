@@ -1,0 +1,122 @@
+---
+title: 分支与格式化
+description: 复数、序数、条件选择、原生 Intl 格式化与编译复用的完整指南。
+---
+
+普通插值只能把参数替换成文本。Templater 在这之上提供两类能力：
+
+- **分支块**：`plural`、`ordinal`、`select`，根据数量或字符串选择一整段文本。
+- **格式化表达式**：`number`、`date`、`time`，把参数交给原生 `Intl` 输出。
+
+两者共用同一套解析器、参数契约和渲染器。i18n 直接复用这些结果，不维护第二套模板引擎。
+
+## 一个完整的例子
+
+```ts
+import { templater } from '@shareyou/templater';
+
+const message =
+  '{{#plural count offset=1}}' +
+  '{{:=1}}Only you' +
+  '{{:one}}You and one other' +
+  '{{:other}}You and {{#}} others' +
+  '{{/plural}}';
+
+templater(message, { count: 5 }, { locale: 'en' });
+// You and 4 others
+```
+
+这个例子同时用到了块、偏移量、精确选择器、语言类别和 `{{#}}` 数量标记。下面分别介绍。
+
+## 块的结构
+
+```text
+{{#plural count offset=1}}
+  ...
+{{:one}} ...分支内容...
+{{:other}} ...分支内容...
+{{/plural}}
+```
+
+| 部分 | 写法 | 说明 |
+| --- | --- | --- |
+| 块头 | `{{#plural count}}` | `plural`、`ordinal` 或 `select`，后接控制参数 |
+| 偏移量 | `offset=1` | 可选，只能用于 `plural` 和 `ordinal` |
+| 分支 | `{{:one}}` | 类别名或 `={{n}}` 精确选择器；`select` 只能使用名称 |
+| 数量标记 | `{{#}}` | 输出最近数量块偏移后的数量 |
+| 结束 | `{{/plural}}` | 必须与块头种类一致 |
+
+## 格式化表达式的结构
+
+```text
+{{amount:number! | number:money}}
+   │      │    │     │      │
+   │      │    │     │      └─ 命名格式（可选）
+   │      │    │     └─ 格式化操作：number、date、time
+   │      │    └─ !：类型不匹配时抛错
+   │      └─ 类型约束（可选）
+   └─ 参数名
+```
+
+`{{...}}` 内部最多出现一个 `|`。出现多个 `|`、未知操作名或缺少参数名，都会在编译阶段抛出 `SyntaxError`。
+
+## 速查表
+
+| 能力 | 示例 | 需要 `locale` |
+| --- | --- | --- |
+| 普通插值 | `{{name}}` | 否 |
+| 类型约束 | `{{count:number!}}` | 否 |
+| 基数复数 | `{{#plural count}}{{:one}}{{#}} item{{:other}}{{#}} items{{/plural}}` | 是 |
+| 序数 | `{{#ordinal rank}}{{:one}}{{#}}st{{:two}}{{#}}nd{{:few}}{{#}}rd{{:other}}{{#}}th{{/ordinal}}` | 是 |
+| 条件选择 | `{{#select role}}{{:admin}}Admin{{:other}}User{{/select}}` | 视分支而定 |
+| 精确数值 | `{{:=0}}`（写在数量块内） | 跟随所在数量块 |
+| 偏移量 | `{{#plural count offset=1}}...{{/plural}}` | 是 |
+| 偏移后数量 | `{{#}}`（写在数量块内） | 跟随所在数量块 |
+| 数字 | `{{amount \| number}}`、`{{amount \| number:money}}` | 是 |
+| 日期 | `{{at \| date:short}}` | 是 |
+| 时间 | `{{at \| time:short}}` | 是 |
+
+## 共同规则
+
+- 每个块都必须包含 `other` 分支。
+- 首个分支前只能有空白，这段前缀不会输出；分支正文中的空白原样保留。
+- 重复分支、不匹配的结束标记、块外出现分支或结束标记，都会抛出 `SyntaxError`。
+- `plural` 和 `ordinal` 的分支名是 CLDR 类别（`zero`、`one`、`two`、`few`、`many`、`other`）或 `=` 开头的精确数值选择器。
+- `select` 的分支名是 ASCII 标识符，可以包含短横线；不接受数值选择器和 `offset`。
+- 所有分支中引用到的参数都必须提供，即使本次不会进入该分支。
+- 块可以任意嵌套。`select` 不改变外层数量作用域；嵌套数量块会把 `{{#}}` 重新绑定到内层数量。
+- 精确选择器比较原始参数值；语言类别和 `{{#}}` 使用“数量减去偏移量”后的值。
+- 数量控制值必须是有限 `number`，`select` 控制值必须是 `string`。
+
+## 语言要求
+
+| 模板内容 | 是否需要显式 `locale` |
+| --- | --- |
+| 普通插值和类型约束 | 否 |
+| 只使用 `select`，且所有分支都没有数量块和格式化 | 否 |
+| `plural`、`ordinal` | 是 |
+| `number`、`date`、`time` 格式化 | 是 |
+| `select` 的任一分支内出现数量块或格式化 | 是 |
+
+字面量模板会在类型层面要求第三个参数；动态 `string` 模板由运行时检查。Templater 不会从运行环境推断语言。
+
+## 错误出现时机
+
+| 时机 | 检查内容 | 错误类型 |
+| --- | --- | --- |
+| 编译/解析 | 块结构、分支标签、重复分支、格式化表达式形状、未知操作名 | `SyntaxError` |
+| 渲染前 | 选项、`locale` 与时区合法性、参数存在性与类型 | `TypeError`、`ReferenceError`、`TemplateArgumentError` |
+| 渲染时 | 引用了不存在的命名格式 | `RangeError` |
+
+完整规则见 [错误处理](/docs/templater/errors)。
+
+## 分篇阅读
+
+- [复数（plural）](/docs/templater/advanced/plural)：语言类别、精确选择器和 `{{#}}`。
+- [序数（ordinal）](/docs/templater/advanced/ordinal)：`1st`、`2nd`、`3rd` 等序数规则。
+- [条件选择（select）](/docs/templater/advanced/select)：按字符串值切换分支。
+- [偏移量与数量文本](/docs/templater/advanced/offset)：`offset`、`{{#}}` 与原始参数值的区别。
+- [数字格式化](/docs/templater/advanced/number)：货币、百分比、紧凑记数和分组。
+- [日期与时间格式化](/docs/templater/advanced/date-time)：日期、时间、时区和内置样式。
+- [命名格式与 Intl 选项](/docs/templater/advanced/presets)：预设查找、选项归一化和快照。
+- [编译复用与参数契约](/docs/templater/advanced/compile)：`compileTemplate`、`parameters` 和 `requiresLocale`。

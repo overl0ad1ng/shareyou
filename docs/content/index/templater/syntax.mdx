@@ -1,0 +1,41 @@
+---
+title: 模板语法
+description: 占位符、类型约束和文本替换规则。
+---
+
+## 占位符语法
+
+| 写法 | 行为 |
+| --- | --- |
+| `{{name}}` | 将参数通过 `String(value)` 转换为文本并插入 |
+| `{{name:string}}` | 检查类型，不匹配时警告，随后继续替换 |
+| `{{name:string!}}` | 检查类型，不匹配时抛出 `TypeError` 并中断调用 |
+
+类型名称沿用 JavaScript 的 `typeof` 结果：`string`、`number`、`boolean`、`bigint`、`symbol`、`undefined`、`object` 和 `function`。
+其中 `null` 和数组的 `typeof` 结果都是 `"object"`，因此满足 `object` 约束；函数的 `typeof` 结果是 `"function"`，不满足 `object`。
+
+参数名以英文字母、下划线或 `$` 开头，后续可以包含数字。占位符内部允许空白，`{{name}}`、`{{ name }}` 与 `{{ name : string ! }}` 等价。同名占位符会全部替换：
+
+```ts
+import { templater } from "@shareyou/templater";
+
+templater("{{ name }} / {{name:string}}", { name: "Shareyou" });
+// Shareyou / Shareyou
+```
+
+## 替换规则与使用范围
+
+替换值会作为普通文本插入。其中的占位符和 `$&` 等字符不会再次解释：
+
+```ts
+templater("{{text}}", { text: "$& {{name}}" });
+// $& {{name}}
+```
+
+- 不支持的类型名称和不完整的占位符会原样保留，比如 `{{name:unknown}}` 和 `{{name`。
+- 不支持嵌套属性路径、JavaScript 表达式或循环。条件选择、复数和序数使用显式块语法，详见 [分支与格式化](/docs/templater/advanced)。
+- 新保留的块和格式化语法结构错误会抛出 `SyntaxError`，例如不匹配的结束标记或未知格式化操作。
+- 返回内容是普通字符串，不执行 HTML 转义。将结果写入 HTML 时，需要由调用方根据用途处理转义。
+- 参数属性读取或 `String(value)` 转换时产生的异常，会继续向调用方抛出。
+
+类型不匹配时的处理方式见 [错误处理](/docs/templater/errors)。

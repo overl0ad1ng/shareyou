@@ -1,0 +1,10 @@
+{
+  "name": "shareyou-workspace",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --filter @shareyou/core... --recursive run build",
+    "test": "pnpm --filter @shareyou/core... --recursive run test",
+    "typecheck": "pnpm --filter @shareyou/core... --recursive run typecheck"
+  },
+  "packageManager": "pnpm@12.4.2"
+}

@@ -1,0 +1,81 @@
+---
+title: 序数（ordinal）
+description: 使用语言的序数规则输出 1st、2nd、3rd 等排名文本。
+---
+
+`ordinal` 和 `plural` 的结构完全一致，区别在于它使用 `Intl.PluralRules` 的**序数**（ordinal）规则，而不是基数规则。
+
+## 基本写法
+
+```ts
+import { templater } from '@shareyou/templater';
+
+const place =
+  '{{#ordinal rank}}' +
+  '{{:one}}{{#}}st' +
+  '{{:two}}{{#}}nd' +
+  '{{:few}}{{#}}rd' +
+  '{{:other}}{{#}}th' +
+  '{{/ordinal}}';
+
+templater(place, { rank: 1 }, { locale: 'en' }); // 1st
+templater(place, { rank: 2 }, { locale: 'en' }); // 2nd
+templater(place, { rank: 3 }, { locale: 'en' }); // 3rd
+templater(place, { rank: 4 }, { locale: 'en' }); // 4th
+```
+
+以下结果说明了英语序数的特殊之处：
+
+| `rank` | 类别 | 输出 |
+| --- | --- | --- |
+| `1` | `one` | `1st` |
+| `2` | `two` | `2nd` |
+| `3` | `few` | `3rd` |
+| `4` | `other` | `4th` |
+| `11` | `other` | `11th` |
+| `21` | `one` | `21st` |
+
+所以不能简单地用“数字尾数”判断，必须交给语言规则。
+
+## 与其他语法的组合
+
+`ordinal` 支持 `offset` 和 `{{#}}`，语义与 `plural` 相同：类别和 `{{#}}` 都基于“数量减去偏移量”后的值。
+
+```ts
+const rank =
+  '{{#ordinal position offset=0}}' +
+  '{{:one}}第 {{#}} 名' +
+  '{{:two}}第 {{#}} 名' +
+  '{{:few}}第 {{#}} 名' +
+  '{{:other}}第 {{#}} 名' +
+  '{{/ordinal}}';
+
+templater(rank, { position: 3 }, { locale: 'zh-CN' });
+// 第 3 名
+```
+
+中文的序数规则通常只产生 `other`，这是正常的：分支可以写多个，但实际只会命中 `other`。
+
+也可以在 `ordinal` 内嵌套其他块：
+
+```ts
+const message =
+  '{{#ordinal rank}}' +
+  '{{:one}}{{name:string}} finished {{#}}st' +
+  '{{:other}}{{name:string}} finished {{#}}th' +
+  '{{/ordinal}}';
+
+templater(message, { rank: 21, name: 'Ada' }, { locale: 'en' });
+// Ada finished 21st
+```
+
+## 规则要点
+
+- 控制参数必须是有限 `number`。
+- 必须提供 `locale`。
+- 必须包含 `other` 分支。
+- 分支名使用 CLDR 类别或 `={{n}}` 精确选择器。
+- 重复分支、不匹配的结束标记会抛出 `SyntaxError`。
+- 所有分支中引用的参数都必填。
+
+精确选择器在序数块中同样优先于语言类别，并且比较原始值。相关细节见[偏移量与数量文本](/docs/templater/advanced/offset)。

@@ -1,0 +1,132 @@
+---
+title: 快速开始
+description: 安装 Shareyou，了解统一入口与独立包的用法。
+---
+
+## 环境要求
+
+- Node.js 22 或更高版本。
+- 使用 ES 模块，通过 `import` 导入。
+- TypeScript 项目需要 TypeScript 5.4 或更高版本，以支持模板参数类型推导。
+
+## 安装统一入口
+
+`@shareyou/core` 依赖并导出所有已实现的 Shareyou 工具，目前包含 Templater 和 i18n。
+
+统一入口包目前已完成本地构建与打包，尚未发布到 npm。以下安装命令适用于发布后的版本；发布前可按本页「本地开发」部分运行仓库代码。
+
+<PackageInstall package="@shareyou/core" />
+
+## 第一次调用
+
+默认导出提供统一的 `shareyou` 对象：
+
+```ts
+import shareyou from "@shareyou/core";
+
+const text = shareyou.templater(
+  "你好，{{name:string}}。你有 {{count:number!}} 条新消息。",
+  { name: "小明", count: 3 },
+);
+
+console.log(text);
+// 你好，小明。你有 3 条新消息。
+```
+
+`templater()` 接收模板字符串和参数对象，同步返回替换后的字符串。对于字面量模板，编辑器会提示所需的参数名称与类型。
+
+导入时可以选择其他本地名称：
+
+```ts
+import _ from "@shareyou/core";
+
+_.templater("你好，{{name}}。", { name: "Shareyou" });
+```
+
+## 导入函数和类型
+
+只需要单个函数时，可以使用具名导出：
+
+```ts
+import { templater, type TemplateParameters } from "@shareyou/core";
+
+const template = "{{name:string}}：{{count:number!}} 条消息";
+const parameters: TemplateParameters<typeof template> = {
+  name: "小明",
+  count: 3,
+};
+
+const text: string = templater(template, parameters);
+```
+
+统一入口也提供 `shareyou` 的具名导出。它与默认导出引用同一个对象：
+
+```ts
+import shareyou, { shareyou as namedShareyou } from "@shareyou/core";
+
+console.log(shareyou === namedShareyou); // true
+```
+
+## 只安装 Templater
+
+独立包适合只需要字符串插值的项目：
+
+<PackageInstall package="@shareyou/templater" />
+
+```ts
+import { templater } from "@shareyou/templater";
+
+const text = templater("你好，{{name}}。", { name: "Shareyou" });
+```
+
+独立包和统一入口中的 `templater` 使用相同的参数规则与错误行为，详见 [Templater 文档](/docs/templater/)。
+
+## 只安装 i18n
+
+需要翻译、语言回退或参数类型生成时，安装独立包：
+
+<PackageInstall package="@shareyou/i18n" />
+
+```ts
+import { createI18n } from "@shareyou/i18n";
+
+const i18n = createI18n({
+  locale: "zh-CN",
+  messages: {
+    "zh-CN": { greeting: "你好，{{name:string}}。" },
+  },
+});
+
+i18n.t("greeting", { name: "小明" });
+// 你好，小明。
+```
+
+统一入口的 `shareyou.i18n(options)` 与这里的 `createI18n` 是同一个工厂函数。
+参数类型生成由该包附带的 `shareyou-i18n` CLI 提供，用法见 [类型生成与检查](/docs/i18n/types)。
+
+## 本地开发
+
+在仓库根目录运行：
+
+```sh
+pnpm install
+pnpm build
+pnpm test
+pnpm typecheck
+```
+
+根目录使用 pnpm workspace 连接本地功能包。构建、测试和类型检查会按依赖顺序执行，覆盖统一入口及其已实现的依赖包。
+
+运行统一入口的示例：
+
+```sh
+pnpm --filter @shareyou/core demo
+```
+
+文档站位于 `docs/`，独立安装和运行：
+
+```sh
+cd docs
+pnpm install
+pnpm dev
+```

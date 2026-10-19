@@ -1,0 +1,97 @@
+---
+title: 数字格式化
+description: 使用 Intl.NumberFormat 输出货币、百分比、紧凑记数和分组数字。
+---
+
+格式化表达式把参数交给原生 `Intl`。数字使用 `Intl.NumberFormat`，语法是在占位符后加 `| number`：
+
+```text
+{{amount | number}}
+{{amount | number:money}}
+```
+
+## 基本用法
+
+```ts
+import { templater } from '@shareyou/templater';
+
+templater('{{count | number}}', { count: 1234.5 }, { locale: 'en' });
+// 1,234.5
+
+templater('{{count | number}}', { count: 1234567 }, { locale: 'zh-CN' });
+// 1,234,567
+```
+
+- 省略格式名称时使用 `Intl.NumberFormat(locale, {})` 的默认行为。
+- 必须提供 `locale`。
+- 输入必须是有限 `number`。字符串、`NaN`、`Infinity` 和 `bigint` 都会抛出 `TemplateArgumentError`。
+
+数字格式化没有内置预设。`number:money` 这样的写法必须先通过 `formats.number` 定义。
+
+## 定义命名格式
+
+```ts
+const options = {
+  locale: 'en',
+  formats: {
+    number: {
+      money: { style: 'currency', currency: 'USD' },
+      compact: { notation: 'compact', maximumFractionDigits: 1 },
+      percent: { style: 'percent' },
+    },
+  },
+};
+
+templater('{{amount | number:money}}', { amount: 1234.5 }, options);
+// $1,234.50
+
+templater('{{amount | number:compact}}', { amount: 12345 }, options);
+// 12.3K
+
+templater('{{ratio | number:percent}}', { ratio: 0.256 }, options);
+// 26%
+```
+
+预设值就是原始的 `Intl.NumberFormatOptions`。常见组合：
+
+| 目标 | 选项 |
+| --- | --- |
+| 货币 | `{ style: 'currency', currency: 'CNY' }` |
+| 百分比 | `{ style: 'percent' }` |
+| 紧凑记数 | `{ notation: 'compact' }` |
+| 固定小数位 | `{ minimumFractionDigits: 2, maximumFractionDigits: 2 }` |
+| 有效数字 | `{ maximumSignificantDigits: 3 }` |
+| 单位 | `{ style: 'unit', unit: 'kilometer' }` |
+
+命名格式的查找、覆盖和归一化规则见[命名格式与 Intl 选项](/docs/templater/advanced/presets)。
+
+## 与类型约束组合
+
+`|` 前仍然可以写普通的 `:type` 约束：
+
+```ts
+templater('{{amount:number | number:money}}', { amount: 9.9 }, options);
+// $9.90
+```
+
+格式化本身已经要求有限数字，因此这里的 `:number` 主要是让参数契约更明确。`!` 只影响普通类型约束的警告/抛错方式；格式化的输入检查始终抛错。
+
+```ts
+// @ts-expect-error amount 需要 number。
+templater('{{amount | number}}', { amount: '9.9' }, { locale: 'en' });
+```
+
+## 错误与时机
+
+| 情况 | 时机 | 错误 |
+| --- | --- | --- |
+| 格式化表达式形状错误（多个竖线、未知操作名、缺少参数名） | 编译 | `SyntaxError` |
+| 输入不是有限数字 | 渲染前 | `TemplateArgumentError` |
+| 没有提供 `locale` | 渲染前 | `TypeError` |
+| 引用了未定义的预设 | 渲染时（仅当该分支被执行） | `RangeError` |
+
+未定义的预设是惰性检查的：如果模板里存在 `number:missing`，但本次没有走到包含它的分支，就不会报错。
+
+## 与 `{{#}}` 的关系
+
+数量块中的 `{{#}}` 也使用数字格式化，但固定使用 `Intl.NumberFormat(locale, {})`，不能指定预设。需要自定义数量文本的格式时，改用普通参数配合 `| number:preset`。

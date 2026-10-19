@@ -1,0 +1,107 @@
+---
+title: 偏移量与数量文本
+description: 用 offset 调整数量类别，并理解 {{#}} 与原始值的区别。
+---
+
+`offset` 用于“已经包含了若干数量”的文案。比如一句话里已经说了“你”，后面就只需要补充其余人数：
+
+```text
+You and 4 others
+```
+
+`offset=1` 表示前面已经计算了 1 个，语言类别和 `{{#}}` 都基于剩余数量。
+
+## 写在哪
+
+`offset` 写在数量块头中，只能用于 `plural` 和 `ordinal`：
+
+```text
+{{#plural count offset=1}}
+```
+
+- `offset=1` 与 `offset = 1` 都合法。
+- 只接受十进制数字，并且必须是安全整数。
+- `offset=+1`、`offset=-1`、`offset=1.5`、`offset=0x10` 都会抛出 `SyntaxError`。
+- `select` 不接受 `offset`。
+- 省略时等价于 `offset=0`。
+
+## 偏移量改变了什么
+
+| 表达式 | 使用的值 |
+| --- | --- |
+| 精确选择器 `{{:=1}}` | 原始参数值 |
+| 语言类别（`one`、`few` 等） | 参数值减去偏移量 |
+| `{{#}}` | 参数值减去偏移量 |
+| 普通 `{{count}}` | 原始参数值 |
+
+精确选择器仍然比较原始值，这是为了能表达“恰好只有你”这种情况。
+
+## 完整示例
+
+```ts
+import { templater } from '@shareyou/templater';
+
+const message =
+  '{{#plural count offset=1}}' +
+  '{{:=1}}Only you' +
+  '{{:one}}You and one other' +
+  '{{:other}}You and {{#}} others' +
+  '{{/plural}}';
+
+templater(message, { count: 1 }, { locale: 'en' }); // Only you
+templater(message, { count: 2 }, { locale: 'en' }); // You and one other
+templater(message, { count: 5 }, { locale: 'en' }); // You and 4 others
+```
+
+逐步看 `count = 2`：
+
+1. 精确选择器检查原始值 `2`，没有 `{{:=2}}` 分支。
+2. 剩余数量是 `2 - 1 = 1`，英语基数类别为 `one`。
+3. 进入 `{{:one}}` 分支，输出 `You and one other`。
+
+`count = 1` 时如果不写 `{{:=1}}`，剩余数量会是 `0`，英语类别是 `other`，结果就成了 `You and 0 others`。精确选择器正是用来处理这种边界。
+
+## `{{#}}` 的规则
+
+`{{#}}` 输出最近一层数量块的剩余数量，并通过 `Intl.NumberFormat` 按当前语言格式化：
+
+```ts
+const message =
+  '{{#plural count offset=2}}{{:other}}剩余 {{#}} 项{{/plural}}';
+
+templater(message, { count: 12 }, { locale: 'zh-CN' });
+// 剩余 10 项
+```
+
+如果剩余数量较大，会带上分组分隔符。
+
+`{{#}}` 只在数量块内有特殊含义。块外会原样输出，并保留内部的空白：
+
+```ts
+templater('Total: {{#}}', {});   // Total: {{#}}
+templater('Total: {{ # }}', {}); // Total: {{ # }}
+```
+
+## 嵌套时的作用域
+
+`{{#}}` 指向最近一层数量块。嵌套数量块会重新绑定，而 `select` 不会：
+
+```ts
+const message =
+  '{{#plural total offset=1}}' +
+  '{{:other}}总剩余 {{#}}，其中 ' +
+  '{{#plural hidden}}{{:other}}{{#}} 项隐藏' +
+  '{{/plural}}' +
+  '{{/plural}}';
+
+templater(message, { total: 5, hidden: 2 }, { locale: 'zh-CN' });
+// 总剩余 4，其中 2 项隐藏
+```
+
+外层 `{{#}}` 是 `5 - 1 = 4`，内层 `{{#}}` 是 `2`。离开内层块后，`{{#}}` 又回到外层数量。
+
+## 参数与类型
+
+数量控制值必须是有限 `number`。偏移量本身不参与参数契约，它只是块配置。
+
+即使某个分支不会执行，该分支引用的参数仍然必填。偏移量只影响数值计算，不会放宽参数要求。

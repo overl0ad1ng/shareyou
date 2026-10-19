@@ -1,0 +1,50 @@
+{
+  "name": "@shareyou/templater",
+  "version": "0.1.0",
+  "description": "Typed templates with interpolation, plural/select blocks and native Intl formatting",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "pnpm run clean && tsc -p tsconfig.json",
+    "typecheck": "pnpm run build && tsc -p tsconfig.typecheck.json",
+    "test": "pnpm run build && node --test",
+    "demo": "pnpm run build && node examples/node.mjs",
+    "prepack": "pnpm run build"
+  },
+  "keywords": [
+    "shareyou",
+    "template",
+    "interpolation",
+    "typescript"
+  ],
+  "author": {
+    "name": "IzayoiKyomu",
+    "email": "kyomu@overl0ad1ng.com"
+  },
+  "license": "MIT",
+  "homepage": "https://shareyou.overl0ad1ng.com/docs/templater",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

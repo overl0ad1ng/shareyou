@@ -1,0 +1,100 @@
+---
+title: 条件选择（select）
+description: 按字符串值切换分支，不依赖语言规则。
+---
+
+`select` 根据控制参数的字符串值选择分支。它适合性别、角色、状态、套餐等枚举型文本。
+
+## 基本写法
+
+```ts
+import { templater } from '@shareyou/templater';
+
+const greeting =
+  '{{#select role}}{{:admin}}管理员{{:editor}}编辑{{:other}}访客{{/select}}';
+
+templater(greeting, { role: 'admin' });  // 管理员
+templater(greeting, { role: 'editor' }); // 编辑
+templater(greeting, { role: 'guest' });  // 访客
+```
+
+这里不需要 `locale`：`select` 只是字符串匹配，不涉及语言规则。
+
+- 控制参数必须是 `string`，否则抛出 `TemplateArgumentError`。
+- 没有匹配的分支时使用 `other`。
+- 匹配区分大小写，并且要求完全相等。
+- `other` 分支必须存在。
+
+## 分支名称
+
+`select` 的分支名是 ASCII 标识符，可以包含短横线：
+
+```ts
+const status =
+  '{{#select state}}' +
+  '{{:in-progress}}进行中' +
+  '{{:done}}已完成' +
+  '{{:cancelled}}已取消' +
+  '{{:other}}未知状态' +
+  '{{/select}}';
+
+templater(status, { state: 'in-progress' }); // 进行中
+templater(status, { state: 'pending' });     // 未知状态
+```
+
+## 禁止的写法
+
+`select` 有两条额外限制：
+
+| 写法 | 结果 | 原因 |
+| --- | --- | --- |
+| `{{:=1}}` | `SyntaxError` | `select` 只接受命名分支，不接受数值选择器 |
+| `{{#select kind offset=1}}` | `SyntaxError` | 偏移量只属于数量块 |
+
+分支名也不能是空字符串或包含空格、点号等字符。
+
+## 嵌套数量块
+
+`select` 可以嵌套数量块。此时模板需要 `locale`，并且 `{{#}}` 由内层数量块重新绑定：
+
+```ts
+const plan =
+  '{{#select tier}}' +
+  '{{:pro}}{{#plural seats}}{{:one}}{{#}} seat{{:other}}{{#}} seats{{/plural}}' +
+  '{{:other}}{{seats:number}} seats' +
+  '{{/select}}';
+
+templater(plan, { tier: 'pro', seats: 3 }, { locale: 'en' });
+// 3 seats
+
+templater(plan, { tier: 'basic', seats: 3 }, { locale: 'en' });
+// 3 seats
+```
+
+第二个调用没有进入数量块，但仍然必须提供 `seats`，因为所有分支参数都属于契约。`locale` 也仍然需要，因为模板中存在可到达的数量块。
+
+## 数量作用域
+
+`select` 本身不改变 `{{#}}` 的绑定：
+
+```ts
+const message =
+  '{{#plural count}}' +
+  '{{:one}}{{#select kind}}{{:a}}A{{:other}}{{#}} B{{/select}}{{#}} item' +
+  '{{:other}}{{#}} items' +
+  '{{/plural}}';
+
+templater(message, { count: 1, kind: 'a' }, { locale: 'en' });
+// A1 item
+```
+
+在 `select` 分支里的 `{{#}}` 仍然指向外层 `plural` 的数量。只有嵌套 `plural` 或 `ordinal` 才会重新绑定。若 `select` 外层没有任何数量块，`{{#}}` 会原样输出。
+
+## 规则要点
+
+- 控制值为字符串，按完全相等的键查找分支。
+- 分支名是 ASCII 标识符，可包含短横线。
+- 不接受 `=` 数值选择器和 `offset`。
+- 必须有 `other` 分支。
+- 只有分支内出现数量块或格式化时才需要 `locale`。
+- 所有分支中引用的参数都必填。

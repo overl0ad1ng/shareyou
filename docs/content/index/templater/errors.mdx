@@ -1,0 +1,94 @@
+---
+title: 错误处理
+description: 运行时参数检查、类型不匹配警告和异常处理。
+---
+
+下面使用 JavaScript 演示运行时类型不匹配；在 TypeScript 的字面量模板中，这类错误会先被类型检查发现。
+
+## 普通约束：警告后继续替换
+
+```js
+import { templater } from "@shareyou/templater";
+
+const text = templater("{{count:number}} 条消息", { count: "3" });
+// console.warn: Expected template parameter `count` to be of type `number`, but received `string`.
+// text === "3 条消息"
+```
+
+## 严格约束：抛出错误
+
+```js
+try {
+  templater("{{count:number!}} 条消息", { count: "3" });
+} catch (error) {
+  if (error instanceof TypeError) {
+    console.error(error.message);
+  }
+}
+```
+
+## 检查规则
+
+警告与错误的具体规则如下：
+
+| 情况 | 行为 |
+| --- | --- |
+| 模板不是字符串 | 抛出 `TypeError` |
+| 参数为 `null`、数组或非对象值 | 抛出 `TypeError` |
+| 缺少有效占位符引用的自有属性 | 抛出 `ReferenceError` |
+| 非严格类型约束不匹配 | 调用 `console.warn`，继续替换 |
+| 带 `!` 的类型约束不匹配 | 抛出 `TypeError` |
+| 设置 `typeMismatch: 'throw'` 后类型不匹配 | 抛出 `TypeError` |
+| 块或格式化语法错误 | 编译时抛出 `SyntaxError` |
+| 需要语言规则但没有显式 `locale` | 抛出 `TypeError` |
+| 数量不是有限数字或日期无效 | 抛出 `TypeError` |
+| 使用不存在的命名格式 | 渲染时抛出 `RangeError` |
+
+## 常见异常示例
+
+缺少参数时抛出 `MissingTemplateParameterError`（`ReferenceError` 的子类）：
+
+```js
+import {
+  templater,
+  MissingTemplateParameterError,
+} from "@shareyou/templater";
+
+try {
+  templater("{{name}}", {});
+} catch (error) {
+  console.log(error instanceof MissingTemplateParameterError); // true
+}
+```
+
+需要语言规则却没有提供 `locale` 时，抛出普通 `TypeError`：
+
+```js
+try {
+  templater("{{amount | number:money}}", { amount: 12.5 });
+} catch (error) {
+  console.log(error instanceof TypeError); // true
+}
+```
+
+## 参数存在性
+
+参数对象的原型属性不会被读取。显式传入 `undefined` 属于已提供的值，会替换为文本 `"undefined"`；省略该属性则会被视为缺少参数。
+
+## object 约束
+
+对象、数组和 `null` 的 `typeof` 结果都是 `"object"`，因此均满足运行时的 `object` 约束。TypeScript 的 `object` 类型还接受函数，但运行时函数的类型为 `"function"`，在 `object` 约束下仍会触发警告或错误。
+
+占位符的完整写法见 [模板语法](/docs/templater/syntax)。
+
+## 错误类型
+
+| 错误类 | 基类 | 典型场景 |
+| --- | --- | --- |
+| `TemplateArgumentError` | `TypeError` | 类型不匹配、参数对象形状错误、数量非有限数字、日期无效、选择控制值不是字符串 |
+| `MissingTemplateParameterError` | `ReferenceError` | 参数对象缺少占位符引用的自有属性 |
+| `SyntaxError` | `SyntaxError` | 块或格式化语法错误 |
+| `RangeError` | `RangeError` | 渲染时引用了不存在的命名格式 |
+
+`TemplateArgumentError` 和 `MissingTemplateParameterError` 都保留原生 `Error.name`，现有 `instanceof` 判断继续有效。缺少 `locale` 等选项错误使用普通 `TypeError`。
+i18n 使用这些类型包装带语言和键名上下文的错误，不自行实现模板参数校验。

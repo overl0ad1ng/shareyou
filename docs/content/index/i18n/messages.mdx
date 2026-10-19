@@ -1,0 +1,65 @@
+---
+title: 模板消息与格式化
+description: i18n 复用 Templater 的插值、复数、序数、选择和命名格式。
+---
+
+i18n 的消息由 Shareyou Templater 编译和渲染，语法和直接调用 Templater 完全一致。
+
+## 消息语法
+
+| 用途 | 消息示例 |
+| --- | --- |
+| 插值 | `你好，{{name:string}}` |
+| 数字 | `共 {{count \| number}} 件` |
+| 金额 | `{{amount \| number:money}}` |
+| 日期 | `{{at \| date:short}}` |
+| 时间 | `{{at \| time:short}}` |
+| 复数 | `{{#plural count}}{{:one}}{{#}} item{{:other}}{{#}} items{{/plural}}` |
+| 序数 | `{{#ordinal rank}}{{:one}}{{#}}st{{:other}}{{#}}th{{/ordinal}}` |
+| 偏移量 | `{{#plural count offset=1}}{{:=1}}only you{{:one}}you and one{{:other}}you and {{#}} others{{/plural}}` |
+| 选择 | `{{#select gender}}{{:female}}She{{:male}}He{{:other}}They{{/select}}` |
+
+块必须提供 `other`，支持嵌套、精确数值和偏移量。`{{#}}` 输出最近数量块的偏移后数量，而 `{{count}}` 始终是原始参数值。
+分支及参数规则详见 [Templater 分支与格式化](/docs/templater/advanced)。
+所有分支参数都必填，同名参数约束取交集。输出是纯文本，标签保留，不支持富文本回调，也不进行 HTML 转义。
+
+## 配置命名格式
+
+```ts
+import { createI18n } from '@shareyou/i18n';
+
+const i18n = createI18n({
+  locale: 'zh-CN', timeZone: 'Asia/Shanghai',
+  formats: {
+    number: { money: { style: 'currency', currency: 'CNY' } },
+    date: { short: { dateStyle: 'full', timeZone: 'UTC' } },
+  },
+  messages: {
+    'zh-CN': { receipt: '{{amount | number:money}}，更新于 {{at | date:short}}' },
+  },
+});
+i18n.t('receipt', { amount: 12.5, at: new Date() });
+```
+
+配置复用 `TemplateFormats`。日期和时间内置 `short`、`medium`、`long`、`full`；用户同名配置优先。
+命名格式在实例创建时保存为独立快照，之后修改传入的对象不会影响已创建的实例。
+默认时区同时作用于消息内日期时间和独立 `formatDate`，命名格式或单次调用的显式时区可覆盖它。
+缺少命名格式在渲染时抛出带上下文的 `FORMAT_ERROR`。
+
+i18n 将命中文案所属语言传给 Templater。因此回退到英文文案时，复数和消息格式都按英文规则执行。
+
+## 独立格式化
+
+```ts
+i18n.formatNumber(1234.5, { style: 'currency', currency: 'CNY' });
+i18n.formatDate(new Date(), { dateStyle: 'medium' });
+i18n.formatDate(Date.UTC(2026, 0, 1), { dateStyle: 'full', timeZone: 'UTC' });
+```
+
+独立方法使用当前请求语言，接收原生 `Intl.NumberFormatOptions` 或 `Intl.DateTimeFormatOptions`。
+它们的无效输入和选项沿用原生 `Intl` 异常行为。需要跨环境一致的输出时应显式设置时区。
+
+## 与 Templater 的关系
+
+i18n 管理语言、资源和回退；Templater 管理消息语法、参数检查和渲染。
+i18n 已返回最终文本，无需再将结果交给另一个插值步骤。

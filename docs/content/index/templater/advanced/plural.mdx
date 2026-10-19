@@ -1,0 +1,134 @@
+---
+title: 复数（plural）
+description: 按语言的基数规则选择分支，支持精确数值选择和偏移量。
+---
+
+`plural` 使用 `Intl.PluralRules` 的基数（cardinal）规则，根据数量选择分支。它解决的是“1 item / 3 items”以及俄语、阿拉伯语等多类别语言的变化。
+
+## 基本写法
+
+```ts
+import { templater } from '@shareyou/templater';
+
+const items =
+  '{{#plural count}}{{:one}}{{#}} item{{:other}}{{#}} items{{/plural}}';
+
+templater(items, { count: 1 }, { locale: 'en' }); // 1 item
+templater(items, { count: 3 }, { locale: 'en' }); // 3 items
+templater(items, { count: 0 }, { locale: 'en' }); // 0 items
+```
+
+块头是 `{{#plural count}}`，`count` 是控制参数。每个 `{{:label}}` 开始一个分支，直到下一个分支或 `{{/plural}}`。
+
+- 控制参数必须是有限 `number`，否则抛出 `TemplateArgumentError`。
+- `plural` 必须显式提供 `locale`，否则抛出 `TypeError`。
+- `other` 分支必须存在。
+
+## 语言类别
+
+分支名只能取以下 CLDR 类别：
+
+| 类别 | 含义 |
+| --- | --- |
+| `zero` | 零 |
+| `one` | 单数 |
+| `two` | 双数 |
+| `few` | 少量 |
+| `many` | 大量 |
+| `other` | 其他（兜底） |
+
+具体会用到哪些类别由语言决定，不同语言的规则并不相同：
+
+| 语言 | 常见类别 |
+| --- | --- |
+| `en` | `one`、`other` |
+| `zh-CN` | `other` |
+| `ru` | `one`、`few`、`many`、`other` |
+| `ar` | `zero`、`one`、`two`、`few`、`many`、`other` |
+
+可以为语言不会产生的类别写分支，语法仍然有效，只是永远不会被选中。反过来，如果漏写了语言会产生的类别，会回退到 `other`。
+
+```ts
+const files =
+  '{{#plural count}}' +
+  '{{:one}}{{#}} файл' +
+  '{{:few}}{{#}} файла' +
+  '{{:many}}{{#}} файлов' +
+  '{{:other}}{{#}} файла' +
+  '{{/plural}}';
+
+templater(files, { count: 1 }, { locale: 'ru' }); // 1 файл
+templater(files, { count: 2 }, { locale: 'ru' }); // 2 файла
+templater(files, { count: 5 }, { locale: 'ru' }); // 5 файлов
+```
+
+## 精确数值分支
+
+以 `=` 开头的分支是精确数值选择器，比如 `{{:=0}}`、`{{:=1}}`、`{{:=2.5}}`：
+
+```ts
+const inbox =
+  '{{#plural count}}' +
+  '{{:=0}}No messages' +
+  '{{:one}}1 message' +
+  '{{:other}}{{#}} messages' +
+  '{{/plural}}';
+
+templater(inbox, { count: 0 }, { locale: 'en' }); // No messages
+templater(inbox, { count: 1 }, { locale: 'en' }); // 1 message
+templater(inbox, { count: 7 }, { locale: 'en' }); // 7 messages
+```
+
+精确选择器比较**原始参数值**，并且优先于语言类别。这一点在配合偏移量时尤其重要，详见[偏移量与数量文本](/docs/templater/advanced/offset)。
+
+选择器允许正负号和小数，会被归一化：
+
+| 写法 | 归一化结果 |
+| --- | --- |
+| `{{:=+1}}` | `=1` |
+| `{{:=1.0}}` | `=1` |
+| `{{:=.5}}` | `=0.5` |
+| `{{:=-2}}` | `=-2` |
+
+非数字标签会抛出 `SyntaxError`，例如 `{{:single}}`。
+
+## `{{#}}` 数量标记
+
+`{{#}}` 输出当前数量块的数值，并用该语言格式化（带分组等规则）。它和普通参数不同：普通 `{{count}}` 始终输出原始参数值。
+
+```ts
+const items =
+  '{{#plural count}}{{:one}}{{count}} / {{#}} item{{:other}}{{count}} / {{#}} items{{/plural}}';
+
+templater(items, { count: 1200 }, { locale: 'en' });
+// 1200 / 1,200 items
+```
+
+`{{#}}` 只在数量块内有特殊含义。块外会原样输出，包括内部的空白。嵌套数量块时，`{{#}}` 指向最近一层数量块；中间的 `select` 不会截断数量作用域。
+
+## 嵌套与参数
+
+分支内部可以继续写占位符、格式化表达式和其他块：
+
+```ts
+const message =
+  '{{#plural count}}' +
+  '{{:one}}{{name:string}} has {{#}} item' +
+  '{{:other}}{{name:string}} has {{#}} items' +
+  '{{/plural}}';
+
+templater(message, { count: 3, name: 'Ada' }, { locale: 'en' });
+// Ada has 3 items
+```
+
+`count` 和 `name` 都必填，即使实际只走 `other` 分支。所有分支中引用到的参数都属于模板契约。
+
+## 常见错误
+
+| 现象 | 原因 |
+| --- | --- |
+| `SyntaxError: Every template block requires an other branch.` | 漏写 `{{:other}}` |
+| `SyntaxError: Duplicate branch: one` | 同一个类别写了两次 |
+| `SyntaxError: Invalid quantity branch: single` | 使用了 CLDR 类别以外的标签 |
+| `TypeError: This template requires an explicit locale.` | 没有提供 `locale` |
+| `TemplateArgumentError: ... finite number` | 控制值不是有限数字 |

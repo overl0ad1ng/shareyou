@@ -1,0 +1,98 @@
+---
+title: 类型推导
+description: 从模板推导参数名称与类型，处理动态模板并复用辅助类型。
+---
+
+## 字面量模板
+
+对于字面量模板，Templater 会推导必需的参数名称及其类型。未声明类型的占位符接受 `unknown`：
+
+```ts
+import { templater } from "@shareyou/templater";
+
+const text = templater(
+  "{{name:string}}：{{count:number!}} 条消息，启用状态 {{active}}",
+  { name: "小明", count: 3, active: true },
+);
+
+// 参数类型：
+// { readonly name: string; readonly count: number; readonly active: unknown }
+```
+
+缺少参数、参数类型不匹配，以及直接传入的对象字面量包含多余属性时，TypeScript 会报告错误：
+
+```ts
+// @ts-expect-error 缺少 count。
+templater("{{name}} {{count:number}}", { name: "小明" });
+
+// @ts-expect-error count 需要 number。
+templater("{{count:number!}}", { count: "3" });
+
+// @ts-expect-error 模板没有引用 extra。
+templater("{{name}}", { name: "小明", extra: true });
+```
+
+`!` 只改变运行时的错误处理方式。`{{count:number}}` 和 `{{count:number!}}` 在 TypeScript 中都要求传入 `number`。
+
+模板存入变量后，只要保留字面量类型，就能继续推导：
+
+```ts
+const template = "你好，{{name:string}}。";
+
+templater(template, { name: "Shareyou" });
+```
+
+## 动态模板
+
+从文件、接口或其他运行时来源读取的模板通常是 `string` 类型，TypeScript 无法提前知道其中的占位符。这时参数接受只读字典，运行时检查仍然有效：
+
+```ts
+const template: string = "{{count:number!}} 条消息";
+const parameters: Readonly<Record<string, unknown>> = { count: 3 };
+
+templater(template, parameters); // 3 条消息
+```
+
+此时 `TemplateParameters<string>` 为 `Readonly<Record<string, unknown>>`，`TemplateParameterNames<string>` 为 `string`。占位符类型约束仅由运行时检查。
+
+## 导出类型
+
+`TemplateParameters` 推导参数对象，`TemplateParameterNames` 提取有效参数名的联合类型：
+
+```ts
+import type {
+  TemplateParameters,
+  TemplateParameterNames,
+} from "@shareyou/templater";
+
+type Parameters = TemplateParameters<"{{name:string}} {{count:number!}}">;
+// { readonly name: string; readonly count: number }
+
+type Names = TemplateParameterNames<"{{name}} {{count:number}}">;
+// "name" | "count"
+type DynamicParameters = TemplateParameters<string>;
+// Readonly<Record<string, unknown>>
+type DynamicNames = TemplateParameterNames<string>;
+// string
+```
+
+同一个参数出现多次时，需要同时满足所有类型约束。如果模板变量是尚未缩小范围的字面量联合类型，则需要提供所有可能分支用到的参数。
+
+运行时检查与警告行为见 [错误处理](/docs/templater/errors)。
+
+## 分支与格式化类型
+
+复数和序数控制参数、数字格式化参数推导为 `number`，日期时间参数为 `Date | number`，条件选择控制参数为 `string`。
+所有分支参数都必填，同名参数的类型取交集。字面量模板使用语言规则时，第三参数必须显式提供 `locale`：
+
+```ts
+const template = '{{#plural count}}{{:one}}{{name:string}} has {{#}} item{{:other}}{{#}} items{{/plural}}';
+templater(template, { count: 3, name: 'Ada' }, { locale: 'en' });
+
+// @ts-expect-error 必须显式提供 locale。
+templater(template, { count: 3, name: 'Ada' });
+// @ts-expect-error 未进入的分支参数也必填。
+templater(template, { count: 3 }, { locale: 'en' });
+```
+
+动态 `string` 的语言要求由运行时检查。`compileTemplate(template).render()` 保留相同的参数和选项推导。

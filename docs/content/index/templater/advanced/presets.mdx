@@ -1,0 +1,143 @@
+---
+title: 命名格式与 Intl 选项
+description: 预设查找顺序、选项归一化、格式化器缓存与配置快照。
+---
+
+格式化表达式中的名称（例如 `number:money`、`date:short`）由 `formats` 选项提供。所有预设最终都是原生 `Intl` 选项对象。
+
+## `formats` 的结构
+
+```ts
+interface TemplateFormats {
+  readonly number?: Readonly<Record<string, Intl.NumberFormatOptions>>;
+  readonly date?: Readonly<Record<string, Intl.DateTimeFormatOptions>>;
+  readonly time?: Readonly<Record<string, Intl.DateTimeFormatOptions>>;
+}
+```
+
+```ts
+const options = {
+  locale: 'zh-CN',
+  formats: {
+    number: {
+      money: { style: 'currency', currency: 'CNY' },
+    },
+    date: {
+      receipt: { dateStyle: 'medium' },
+    },
+    time: {
+      clock: { hour: '2-digit', minute: '2-digit' },
+    },
+  },
+};
+```
+
+预设名称必须匹配 `[A-Za-z_$][\w$-]*`：以字母、下划线或 `$` 开头，后续可以包含数字和短横线。
+
+## 查找顺序
+
+对 `| kind:name`，按以下顺序解析：
+
+1. `formats[kind][name]` 中用户定义的预设；
+2. `date` / `time` 的内置样式 `short`、`medium`、`long`、`full`；
+3. 都没有时抛出 `RangeError`。
+
+因此用户可以用同名预设覆盖内置样式：
+
+```ts
+const options = {
+  locale: 'en-US',
+  formats: {
+    date: {
+      // 覆盖内置的 short。
+      short: { dateStyle: 'full' },
+    },
+  },
+};
+
+templater('{{at | date:short}}', { at: new Date() }, options);
+// 输出完整日期，而不是 dateStyle: 'short'
+```
+
+`number` 没有内置预设。`number:money` 必须在 `formats.number` 中定义，否则渲染到该占位符时抛出 `RangeError`。
+
+省略名称时不会查找预设：`| date` 使用默认日期字段，`| time` 使用时分秒，`| number` 使用空选项。
+
+## 选项归一化
+
+预设值不直接传给 `Intl`，而是先经过归一化：
+
+- 只复制受支持的键，未知键会被忽略。
+- 值按原生 `Intl` 的方式转换：布尔选项用 `Boolean`，数字选项用 `+`，字符串选项用 `String`。
+- `useGrouping` 额外保留布尔值，同时接受 `"auto"`、`"always"` 等字符串。
+- 符号值（`Symbol`）会抛出 `TypeError`。
+- 继承属性和不可枚举属性也会被读取，与原生构造器一致。
+
+受支持的 `Intl.NumberFormatOptions` 键：
+
+```text
+localeMatcher, numberingSystem, style, currency, currencyDisplay,
+currencySign, unit, unitDisplay, notation, compactDisplay, useGrouping,
+signDisplay, minimumIntegerDigits, minimumFractionDigits,
+maximumFractionDigits, minimumSignificantDigits, maximumSignificantDigits,
+roundingPriority, roundingIncrement, roundingMode, trailingZeroDisplay
+```
+
+受支持的 `Intl.DateTimeFormatOptions` 键：
+
+```text
+localeMatcher, numberingSystem, calendar, timeZone, hour12, hourCycle,
+formatMatcher, weekday, era, year, month, day, dayPeriod, hour, minute,
+second, fractionalSecondDigits, timeZoneName, dateStyle, timeStyle
+```
+
+归一化后的配置就是缓存键的一部分，因此等价的预设会复用同一个格式化器，即使传入的对象不是同一个引用。
+
+## 时区
+
+`options.timeZone` 会作为所有日期时间预设的默认时区。预设自身写了 `timeZone` 时，以预设为准。优先级见[日期与时间格式化](/docs/templater/advanced/date-time)。
+
+## 惰性检查与快照
+
+默认情况下，预设是惰性解析的：
+
+- 未知预设只在真正执行到该分支时抛出 `RangeError`。
+- 未进入的分支不会触发预设检查。
+
+如果需要在启动阶段就验证配置，使用 `snapshotTemplateFormats`：
+
+```ts
+import {
+  compileTemplate,
+  snapshotTemplateFormats,
+} from '@shareyou/templater';
+
+const formats = snapshotTemplateFormats({
+  number: { money: { style: 'currency', currency: 'CNY' } },
+  date: { short: { dateStyle: 'full' } },
+});
+
+const compiled = compileTemplate('{{price | number:money}}');
+
+compiled.render({ price: 9.9 }, { locale: 'zh-CN', formats });
+// ¥9.90
+```
+
+`snapshotTemplateFormats(formats)` 会：
+
+1. 立即校验 `formats` 的形状；
+2. 归一化每个预设；
+3. 深冻结结果。
+
+返回对象可以被长期持有。之后再修改原始配置对象，不会影响快照。i18n 在创建实例时就是这样保存 `formats` 的。
+
+## 格式化器缓存
+
+每个编译产物拥有自己的格式化器缓存：
+
+- `compileTemplate(...)` 创建的实例在多次 `render` 之间复用缓存。
+- `templater(...)` 每次调用都会重新编译，因此缓存只在本次调用内有效。
+- 缓存键由格式化种类、`locale` 和归一化后的配置组成。
+- 不同语言、不同预设之间不会互相污染。
+
+需要重复渲染同一模板时，优先使用 `compileTemplate`，详见[编译复用与参数契约](/docs/templater/advanced/compile)。
